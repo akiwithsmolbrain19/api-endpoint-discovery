@@ -70,9 +70,22 @@ def crawl(start_url):
     return visited
 
 
-start_url = "http://localhost:8000"
+if __name__ == "__main__":
+    import sys
 
-visited = crawl(start_url)
+    if len(sys.argv) > 1:
+        start_url = sys.argv[1]
+    else:
+        start_url = input("Enter start URL: ").strip()
 
-print("\nFinished!")
-print("Pages visited:", len(visited))
+    if not start_url:
+        print("No URL provided. Usage: python crawler.py <start_url>")
+        sys.exit(1)
+
+    if not start_url.startswith(("http://", "https://")):
+        start_url = "http://" + start_url
+
+    visited = crawl(start_url)
+
+    print("\nFinished!")
+    print("Pages visited:", len(visited))
