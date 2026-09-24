@@ -8,6 +8,8 @@ def fetch_page(url):
 
     print("Status:", response.status_code)
 
+    response.raise_for_status()
+
     return response.text
 
 
@@ -36,6 +38,7 @@ def crawl(start_url):
     domain = urlparse(start_url).netloc
 
     visited = set()
+    seen = set([start_url])
     queue = [start_url]
 
     while queue:
@@ -47,11 +50,11 @@ def crawl(start_url):
 
         print("\nCrawling:", url)
 
-        visited.add(url)
-
         try:
 
             html = fetch_page(url)
+
+            visited.add(url)
 
             links = extract_links(html, url)
 
@@ -60,8 +63,17 @@ def crawl(start_url):
                 if (
                     is_allowed(link, domain)
                     and link not in visited
+                    and link not in seen
                 ):
+                    seen.add(link)
                     queue.append(link)
+
+        except requests.HTTPError as e:
+
+            if e.response is not None and e.response.status_code == 404:
+                print(f"Skipping 404: {url}")
+            else:
+                print("HTTP Error:", e)
 
         except requests.RequestException as e:
 
