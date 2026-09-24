@@ -1,0 +1,114 @@
+{
+    "target": "https://google.com",
+    "scanned_at": "2026-09-23T04:31:21+00:00",
+    "pages_crawled": 46,
+    "endpoint_count": 13,
+    "endpoints": [
+        {
+            "url": "http://google.com/v1",
+            "found_in": [
+                "http://google.com/url?q=https://support.google.com/websearch/%3Fp%3Dws_results_help%26hl%3Den-IN%26fg%3D1&opi=89978449&sa=U&ved=0ahUKEwj36q6C74OXAxV3j-EIHWukDy8Q8KwCCAI&usg=AOvVaw2d7LsFiMyVUAO2Up99oFaR",
+                "http://google.com/url?q=https://support.google.com/websearch/%3Fp%3Dws_results_help%26hl%3Den-IN%26fg%3D1&opi=89978449&sa=U&ved=0ahUKEwjFxLOF74OXAxWLaHADHT0FKnQQ8KwCCAg&usg=AOvVaw3GjsOsRsuQMQnbG_TwrUJ0"
+            ],
+            "method": "UNKNOWN"
+        },
+        {
+            "url": "http://google.com/v3/signin/identifier?continue=https://www.google.com/setting/search/privateresults/?hl%3Den-IN%26authuser%3D0&amp;dsh=S-1878278161:1790137826082767&amp;flowEntry=ServiceLogin&amp;flowName=WebLiteSignIn&amp;followup=https://www.google.com/setting/search/privateresults/?hl%3Den-IN%26authuser%3D0&amp;hl=en-IN",
+            "found_in": [
+                "http://google.com/url?q=/setting/search/privateresults%3Fhl%3Den-IN%26authuser%3D0&opi=89978449&sa=U&ved=0ahUKEwjFxLOF74OXAxWLaHADHT0FKnQQ-vUJCAI&usg=AOvVaw3uHkDctNIfvRlKfWbcg-8a"
+            ],
+            "method": "UNKNOWN"
+        },
+        {
+            "url": "https://accounts.google.com/v3/signin/",
+            "found_in": [
+                "http://google.com/url?q=/setting/search/privateresults%3Fhl%3Den-IN%26authuser%3D0&opi=89978449&sa=U&ved=0ahUKEwjFxLOF74OXAxWLaHADHT0FKnQQ-vUJCAI&usg=AOvVaw3uHkDctNIfvRlKfWbcg-8a",
+                "https://google.com/url?q=/setting/search/privateresults%3Fhl%3Den-IN%26authuser%3D0&opi=89978449&sa=U&ved=0ahUKEwjM_Yff7oOXAxUySWwGHUi0CkYQ-vUJCAI&usg=AOvVaw3LTpXXcC2fzWae6ZfR6gU1"
+            ],
+            "method": "UNKNOWN"
+        },
+        {
+            "url": "https://google.com/v1",
+            "found_in": [
+                "https://google.com/url?q=https://support.google.com/websearch/%3Fp%3Dws_results_help%26hl%3Den-IN%26fg%3D1&opi=89978449&sa=U&ved=0ahUKEwiVy_Tc7oOXAxXBkuEIHX6wJ_UQ8KwCCAI&usg=AOvVaw2Hxngdwz3ioLGrHmPzR1I9",
+                "https://google.com/url?q=https://support.google.com/websearch/%3Fp%3Dws_results_help%26hl%3Den-IN%26fg%3D1&opi=89978449&sa=U&ved=0ahUKEwjM_Yff7oOXAxUySWwGHUi0CkYQ8KwCCAg&usg=AOvVaw18XK6EapVXMcP38H6UtD8O"
+            ],
+            "method": "UNKNOWN"
+        },
+        {
+            "url": "https://google.com/v3/signin/identifier?continue=https://www.google.com/setting/search/privateresults/?hl%3Den-IN%26authuser%3D0&amp;dsh=S-351125710:1790137749116282&amp;flowEntry=ServiceLogin&amp;flowName=WebLiteSignIn&amp;followup=https://www.google.com/setting/search/privateresults/?hl%3Den-IN%26authuser%3D0&amp;hl=en-IN",
+            "found_in": [
+                "https://google.com/url?q=/setting/search/privateresults%3Fhl%3Den-IN%26authuser%3D0&opi=89978449&sa=U&ved=0ahUKEwjM_Yff7oOXAxUySWwGHUi0CkYQ-vUJCAI&usg=AOvVaw3LTpXXcC2fzWae6ZfR6gU1"
+            ],
+            "method": "UNKNOWN"
+        },
+        {
+            "url": "https://www.googleapis.com/youtube/v3",
+            "found_in": [
+                "http://google.com/url?q=https://support.google.com/websearch/%3Fp%3Dws_results_help%26hl%3Den-IN%26fg%3D1&opi=89978449&sa=U&ved=0ahUKEwj36q6C74OXAxV3j-EIHWukDy8Q8KwCCAI&usg=AOvVaw2d7LsFiMyVUAO2Up99oFaR",
+                "http://google.com/url?q=https://support.google.com/websearch/%3Fp%3Dws_results_help%26hl%3Den-IN%26fg%3D1&opi=89978449&sa=U&ved=0ahUKEwjFxLOF74OXAxWLaHADHT0FKnQQ8KwCCAg&usg=AOvVaw3GjsOsRsuQMQnbG_TwrUJ0",
+                "https://google.com/url?q=https://support.google.com/websearch/%3Fp%3Dws_results_help%26hl%3Den-IN%26fg%3D1&opi=89978449&sa=U&ved=0ahUKEwiVy_Tc7oOXAxXBkuEIHX6wJ_UQ8KwCCAI&usg=AOvVaw2Hxngdwz3ioLGrHmPzR1I9",
+                "https://google.com/url?q=https://support.google.com/websearch/%3Fp%3Dws_results_help%26hl%3Den-IN%26fg%3D1&opi=89978449&sa=U&ved=0ahUKEwjM_Yff7oOXAxUySWwGHUi0CkYQ8KwCCAg&usg=AOvVaw18XK6EapVXMcP38H6UtD8O"
+            ],
+            "method": "UNKNOWN"
+        },
+        {
+            "url": "https://www.googleapis.com/youtube/v3/videos?part=snippet%2C+id&key=AIzaSyD-4tE5aKFZYIS_IrfpCDRsgQZbv5VCJZM&id=",
+            "found_in": [
+                "http://google.com/url?q=https://support.google.com/websearch/%3Fp%3Dws_results_help%26hl%3Den-IN%26fg%3D1&opi=89978449&sa=U&ved=0ahUKEwj36q6C74OXAxV3j-EIHWukDy8Q8KwCCAI&usg=AOvVaw2d7LsFiMyVUAO2Up99oFaR",
+                "http://google.com/url?q=https://support.google.com/websearch/%3Fp%3Dws_results_help%26hl%3Den-IN%26fg%3D1&opi=89978449&sa=U&ved=0ahUKEwjFxLOF74OXAxWLaHADHT0FKnQQ8KwCCAg&usg=AOvVaw3GjsOsRsuQMQnbG_TwrUJ0",
+                "https://google.com/url?q=https://support.google.com/websearch/%3Fp%3Dws_results_help%26hl%3Den-IN%26fg%3D1&opi=89978449&sa=U&ved=0ahUKEwiVy_Tc7oOXAxXBkuEIHX6wJ_UQ8KwCCAI&usg=AOvVaw2Hxngdwz3ioLGrHmPzR1I9",
+                "https://google.com/url?q=https://support.google.com/websearch/%3Fp%3Dws_results_help%26hl%3Den-IN%26fg%3D1&opi=89978449&sa=U&ved=0ahUKEwjM_Yff7oOXAxUySWwGHUi0CkYQ8KwCCAg&usg=AOvVaw18XK6EapVXMcP38H6UtD8O"
+            ],
+            "method": "UNKNOWN"
+        },
+        {
+            "url": "https://www.gstatic.com/engage/marketing/automation/prod/v1/marketing_analytics_client_grpc.min.js",
+            "found_in": [
+                "http://google.com/intl/en/ads/",
+                "https://google.com/intl/en/ads/"
+            ],
+            "method": "UNKNOWN"
+        },
+        {
+            "url": "https://www.gstatic.com/images/branding/productlogos/ads/v5/192px.svg",
+            "found_in": [
+                "http://google.com/intl/en/ads/",
+                "https://google.com/intl/en/ads/"
+            ],
+            "method": "UNKNOWN"
+        },
+        {
+            "url": "https://www.gstatic.com/images/branding/productlogos/google_analytics/v6/192px.svg",
+            "found_in": [
+                "http://google.com/intl/en/ads/",
+                "https://google.com/intl/en/ads/"
+            ],
+            "method": "UNKNOWN"
+        },
+        {
+            "url": "https://www.gstatic.com/images/branding/productlogos/google_my_business/v7/192px.svg",
+            "found_in": [
+                "http://google.com/intl/en/ads/",
+                "https://google.com/intl/en/ads/"
+            ],
+            "method": "UNKNOWN"
+        },
+        {
+            "url": "https://www.gstatic.com/images/branding/productlogos/googleg/v6/24px.svg",
+            "found_in": [
+                "http://google.com/intl/en/ads/",
+                "https://google.com/intl/en/ads/"
+            ],
+            "method": "UNKNOWN"
+        },
+        {
+            "url": "https://www.gstatic.com/images/branding/productlogos/merchant_center/v8/192px.svg",
+            "found_in": [
+                "http://google.com/intl/en/ads/",
+                "https://google.com/intl/en/ads/"
+            ],
+            "method": "UNKNOWN"
+        }
+    ]
+}
