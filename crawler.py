@@ -101,6 +101,8 @@ if __name__ == "__main__":
     parser.add_argument("--analyze", action="store_true", help="Run endpoint analysis on discovered candidates")
     parser.add_argument("-o", "--output", default=None, help="Write analysis JSON to file")
     parser.add_argument("--max-pages", type=int, default=50, help="Max pages to crawl (default: 50)")
+    parser.add_argument("--wordlist", default=None, help="Extra wordlist file (one path per line, #comments ignored)")
+    parser.add_argument("-v", "--verbose", action="store_true", help="Show each wordlist path as it is checked")
     args = parser.parse_args()
 
     start_url = args.url or input("Enter start URL: ").strip()
@@ -120,7 +122,7 @@ if __name__ == "__main__":
     try:
         from endpoint_discovery import discover_endpoints
 
-        candidates = discover_endpoints(records, target_url=start_url)
+        candidates = discover_endpoints(records, target_url=start_url, wordlist=args.wordlist, verbose=args.verbose)
         print(f"API candidates: {len(candidates)}")
         for candidate in candidates:
             print(f"  - {candidate['url']}")

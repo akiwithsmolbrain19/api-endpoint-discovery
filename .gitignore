@@ -4,4 +4,3 @@ __pycache__/
 *.pyc
 test_site/
 endpoint_analysis.py
-results.json

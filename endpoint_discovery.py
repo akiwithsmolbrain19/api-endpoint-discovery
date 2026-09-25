@@ -24,7 +24,7 @@ from urllib.parse import urljoin, urlparse
 
 import requests
 
-PATH_HINTS = ("/api/", "/v1/", "/v2/", "/graphql")
+PATH_HINTS = ("/api/", "/v1/", "/v2/", "/graphql", "/chat", "/openai/", "/logs")
 
 # Extra hint used ONLY for JS-extracted strings (Juice Shop uses /rest/*).
 JS_PATH_HINTS = ("/api/", "/api", "/v1/", "/v2/", "/rest/", "/graphql")
@@ -57,6 +57,8 @@ COMMON_API_PATHS = (
     "/v1/products",
     "/graphql",
     "/rest/user/login",
+    "/chat",
+    "/openai/logs",
 )
 
 _TIMEOUT = 5
@@ -193,20 +195,53 @@ def _openapi_source(store, target_url, session):
             _add(store, origin + p, label)
 
 
-def _common_path_source(store, target_url, session):
+def _common_path_source(store, target_url, session, extra_paths=None, verbose=False):
+    GREEN, RESET = "\033[92m", "\033[0m"
     origin = _origin(target_url)
-    for path in COMMON_API_PATHS:
+    paths = list(COMMON_API_PATHS) + list(extra_paths or [])
+    total = len(paths)
+    hits = 0
+    print(f"  [wordlist] brute-forcing {total} paths...", flush=True)
+    for i, path in enumerate(paths, 1):
         url = origin + path
         if url in store:
             # Still record the source if another source found it first.
             _add(store, url, "common_path")
+            hits += 1
+            print(f"  [{i}/{total}] {path} -> {GREEN}HIT (merged, {hits} found){RESET}", flush=True)
             continue
         try:
             r = session.get(url, timeout=_TIMEOUT, allow_redirects=False)
-        except requests.RequestException:
+        except requests.RequestException as e:
+            if verbose:
+                print(f"  [{i}/{total}] {path} -> error", flush=True)
+            else:
+                print(f"  [{i}/{total}] checked, {hits} found", end="\r", flush=True)
             continue
         if r.status_code in _LIVE_STATUSES:
             _add(store, url, "common_path")
+            hits += 1
+            print(f"  [{i}/{total}] {path} -> {GREEN}HIT [{r.status_code}] ({hits} found){RESET}", flush=True)
+        elif verbose:
+            print(f"  [{i}/{total}] {path} -> {r.status_code}", flush=True)
+        else:
+            print(f"  [{i}/{total}] checked, {hits} found", end="\r", flush=True)
+    print(f"  [wordlist] done: {hits}/{total} live{RESET if hits else ''}", flush=True)
+
+
+def load_wordlist(path):
+    """Load extra paths from file. Ignores blanks/#comments, ensures leading /."""
+    out = []
+    with open(path, encoding="utf-8", errors="ignore") as f:
+        for line in f:
+            s = line.strip().split()[0] if line.strip() else ""
+            if not s or s.startswith("#"):
+                continue
+            if not s.startswith("/"):
+                s = "/" + s
+            if s not in out:
+                out.append(s)
+    return out
 
 
 def discover_endpoints(
@@ -215,6 +250,9 @@ def discover_endpoints(
     enable_javascript=True,
     enable_openapi=True,
     enable_common_paths=True,
+    wordlist=None,
+    extra_paths=None,
+    verbose=False,
 ):
     """Multi-source discovery. Always includes the passive crawler source.
 
@@ -237,7 +275,12 @@ def discover_endpoints(
                 if enable_openapi:
                     _openapi_source(store, target_url, session)
                 if enable_common_paths:
-                    _common_path_source(store, target_url, session)
+                    wl = []
+                    if wordlist:
+                        wl += load_wordlist(wordlist)
+                    if extra_paths:
+                        wl += list(extra_paths)
+                    _common_path_source(store, target_url, session, extra_paths=wl, verbose=verbose)
             finally:
                 session.close()
     return _finalize(store)

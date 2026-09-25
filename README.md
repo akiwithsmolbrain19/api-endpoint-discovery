@@ -25,7 +25,7 @@ source venv/bin/activate          # Windows: .\venv\Scripts\Activate.ps1
 pip install -r requirements.txt
 
 # 2. Serve the demo site (terminal 1)
-python -m http.server -d test_site 8000
+make server                        # serves test_site/ on :8000
 
 # 3. Run the full pipeline (terminal 2)
 python crawler.py http://localhost:8000/ --analyze
@@ -97,7 +97,7 @@ Each endpoint gets one safe GET (sensitive query values are blanked before sendi
 ## ✅ Testing
 
 ```bash
-python -m pytest test_endpoint_discovery.py -q   # needs pytest; no network required
+make test      # unit tests — pure mocks, no network needed
 ```
 
 ---
