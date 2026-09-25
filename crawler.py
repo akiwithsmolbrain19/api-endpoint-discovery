@@ -46,7 +46,7 @@ def crawl(start_url, max_pages=50):
 
     while queue:
 
-        if len(results) >= max_pages:
+        if max_pages is not None and len(results) >= max_pages:
             print(f"Reached max pages ({max_pages}), stopping.")
             break
 
