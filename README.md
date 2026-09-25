@@ -14,25 +14,38 @@ Target URL
 
 ## Setup
 
+Create and activate a virtual environment, then install dependencies:
+
 ```bash
+# Linux / macOS
 python3 -m venv venv
-./venv/bin/pip install -r requirements.txt
+source venv/bin/activate
+pip install -r requirements.txt
 ```
+
+```powershell
+# Windows (PowerShell)
+py -m venv venv
+.\venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+```
+
+All commands below assume the venv is activated, so `python` is enough.
 
 ## Usage
 
 ```bash
 # Crawl only
-./venv/bin/python crawler.py http://localhost:8000/
+python crawler.py http://localhost:8000/
 
 # Crawl + discover + analyze (prints JSON)
-./venv/bin/python crawler.py http://localhost:8000/ --analyze
+python crawler.py http://localhost:8000/ --analyze
 
 # Save analysis to a file
-./venv/bin/python crawler.py http://localhost:8000/ --analyze -o results.json
+python crawler.py http://localhost:8000/ --analyze -o results.json
 
 # Limit crawl size (default: 50 pages)
-./venv/bin/python crawler.py https://example.com/ --analyze --max-pages 20
+python crawler.py https://example.com/ --analyze --max-pages 20
 ```
 
 ## How discovery works
@@ -62,7 +75,7 @@ make server        # serve the local test site on :8000
 End-to-end against the included test site or OWASP Juice Shop (`http://localhost:3000`):
 
 ```bash
-./venv/bin/python crawler.py http://localhost:3000/ --analyze -o results.json
+python crawler.py http://localhost:3000/ --analyze -o results.json
 ```
 
 ## Known limitations
