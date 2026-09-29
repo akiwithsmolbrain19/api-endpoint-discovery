@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import codecs
 import html
 import json
 import logging
@@ -137,17 +138,17 @@ class EndpointAnalyzer:
             raise ValueError("timeout must be a number > 0")
         if timeout <= 0:
             raise ValueError("timeout must be > 0")
-            
+
         if type(max_redirects) is not int:
             raise ValueError("max_redirects must be an integer >= 0")
         if max_redirects < 0:
             raise ValueError("max_redirects must be >= 0")
-            
+
         if type(max_response_size) not in (int, float):
             raise ValueError("max_response_size must be a number > 0")
         if max_response_size <= 0:
             raise ValueError("max_response_size must be > 0")
-            
+
         if type(request_delay) not in (int, float):
             raise ValueError("request_delay must be a number >= 0")
         if request_delay < 0:
@@ -523,7 +524,12 @@ class EndpointAnalyzer:
         url: str,
     ) -> tuple[str, str | None, bool]:
         """
-        Blank sensitive query values.
+        Blank sensitive query values while preserving original query encoding.
+
+        This deliberately avoids parse_qsl() because parse_qsl() decodes values
+        and can mutate "+" into spaces, which may change the exact request URL
+        and break signature-based APIs.
+
         Returns:
             (request_url, sanitized_query, changed)
         """
@@ -531,22 +537,20 @@ class EndpointAnalyzer:
         if not parts.query:
             return url, None, False
 
-        pairs = parse_qsl(
-            parts.query,
-            keep_blank_values=True,
-        )
         changed = False
         out: list[str] = []
 
-        for name, value in pairs:
-            encoded_name = quote(name, safe="")
-            if self._is_sensitive_key(name) and value:
-                out.append(f"{encoded_name}=")
+        for pair in parts.query.split("&"):
+            if not pair:
+                continue
+
+            name, sep, value = pair.partition("=")
+
+            if sep and value and self._is_sensitive_key(name):
+                out.append(f"{name}=")
                 changed = True
             else:
-                out.append(
-                    f"{encoded_name}={quote(value, safe='')}"
-                )
+                out.append(pair)
 
         new_query = "&".join(out)
         rebuilt = urlunsplit(
@@ -637,14 +641,14 @@ class EndpointAnalyzer:
         result: dict[str, Any],
         initial_url: str,
     ) -> dict[str, Any] | None:
-        """Manual-redirect GET loop."""
+        """Manual-redirect GET loop with optional OPTIONS fallback on 405."""
         current_url = initial_url
         chain: list[str] = [initial_url]
         redirect_host = self._redirect_host(initial_url)
         hops = 0
         connect_s = 0.0
         body_s = 0.0
-        
+
         # Wrap the loop to ensure cookies are cleared EXACTLY ONCE per candidate,
         # allowing them to persist across redirect hops but isolating them between candidates.
         try:
@@ -706,7 +710,7 @@ class EndpointAnalyzer:
                         chain,
                     )
                     return None
-                
+
                 connect_s += time.perf_counter() - t_conn0
                 try:
                     status = response.status_code
@@ -722,7 +726,7 @@ class EndpointAnalyzer:
                         status in REDIRECT_STATUSES
                         and bool(location and location.strip())
                     )
-                    
+
                     if is_redirect and self.follow_redirects:
                         if hops >= self.max_redirects:
                             t_body0 = time.perf_counter()
@@ -743,7 +747,7 @@ class EndpointAnalyzer:
                                 connect_s + body_s
                             )
                             return observed
-                            
+
                         nxt, blocked_reason = self._resolve_redirect(
                             current_url,
                             location,
@@ -772,12 +776,12 @@ class EndpointAnalyzer:
                                 connect_s + body_s
                             )
                             return observed
-                        
+
                         try:
                             response.close()
                         except Exception:
                             pass
-                            
+
                         nxt_request, _, hop_changed = (
                             self._sanitize_query(nxt)
                         )
@@ -789,7 +793,7 @@ class EndpointAnalyzer:
                         chain.append(nxt_request)
                         hops += 1
                         continue  # Inner finally handles cleanup & timestamp
-                    
+
                     # Final response for this candidate.
                     t_body0 = time.perf_counter()
                     observed = self._read_body(
@@ -808,6 +812,7 @@ class EndpointAnalyzer:
                     observed["elapsed_s"] = (
                         connect_s + body_s
                     )
+
                     if (
                         status in REDIRECT_STATUSES
                         and not (location and location.strip())
@@ -815,6 +820,23 @@ class EndpointAnalyzer:
                         result["warnings"].append(
                             "redirect without Location"
                         )
+
+                    # If GET is explicitly not allowed, probe with OPTIONS to
+                    # discover whether this is still a live API endpoint.
+                    if status == 405:
+                        try:
+                            response.close()
+                        except Exception:
+                            pass
+
+                        # Mark GET completion before OPTIONS so throttling
+                        # applies between the two requests.
+                        self._mark_request_done()
+                        observed["options"] = self._perform_options(
+                            current_url,
+                            result,
+                        )
+
                     return observed
                 finally:
                     try:
@@ -828,6 +850,119 @@ class EndpointAnalyzer:
                 self._session.cookies.clear()
             except Exception:
                 pass
+
+    def _perform_options(
+        self,
+        url: str,
+        result: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Perform a lightweight OPTIONS probe after a 405 GET response."""
+        try:
+            self._throttle()
+            logger.debug(
+                "OPTIONS probe for %s",
+                self._safe_log_url(url),
+            )
+            t0 = time.perf_counter()
+            response = self._session.request(
+                "OPTIONS",
+                url,
+                allow_redirects=False,
+                stream=False,
+                timeout=self.timeout,
+                verify=self.verify_ssl,
+            )
+            elapsed = time.perf_counter() - t0
+            headers = {
+                k.lower(): v
+                for k, v in response.headers.items()
+            }
+            status = response.status_code
+
+            try:
+                response.close()
+            except Exception:
+                pass
+
+            self._mark_request_done()
+            return {
+                "status": status,
+                "headers": headers,
+                "error": None,
+                "elapsed_s": elapsed,
+            }
+        except Timeout as exc:
+            self._mark_request_done()
+            return {
+                "status": None,
+                "headers": {},
+                "error": {
+                    "type": "timeout",
+                    "message": self._short(str(exc)),
+                },
+                "elapsed_s": None,
+            }
+        except SSLError as exc:
+            self._mark_request_done()
+            return {
+                "status": None,
+                "headers": {},
+                "error": {
+                    "type": "ssl_error",
+                    "message": self._short(str(exc)),
+                },
+                "elapsed_s": None,
+            }
+        except (
+            InvalidURL,
+            InvalidSchema,
+            MissingSchema,
+        ) as exc:
+            self._mark_request_done()
+            return {
+                "status": None,
+                "headers": {},
+                "error": {
+                    "type": "invalid_url",
+                    "message": self._short(str(exc)),
+                },
+                "elapsed_s": None,
+            }
+        except RequestsConnectionError as exc:
+            self._mark_request_done()
+            return {
+                "status": None,
+                "headers": {},
+                "error": {
+                    "type": "connection_error",
+                    "message": self._short(str(exc)),
+                },
+                "elapsed_s": None,
+            }
+        except RequestException as exc:
+            self._mark_request_done()
+            return {
+                "status": None,
+                "headers": {},
+                "error": {
+                    "type": "request_error",
+                    "message": self._short(str(exc)),
+                },
+                "elapsed_s": None,
+            }
+        except Exception as exc:
+            self._mark_request_done()
+            return {
+                "status": None,
+                "headers": {},
+                "error": {
+                    "type": "unexpected_error",
+                    "message": self._short(
+                        f"{type(exc).__name__}: {exc}"
+                    ),
+                },
+                "elapsed_s": None,
+            }
 
     @staticmethod
     def _short(message: str) -> str:
@@ -845,7 +980,7 @@ class EndpointAnalyzer:
 
         host = (parts.hostname or "").lower()
         # Strict hostname literal matching (no www. stripping)
-        
+
         try:
             port = parts.port
         except ValueError:
@@ -896,7 +1031,7 @@ class EndpointAnalyzer:
 
         thost = (parts.hostname or "").lower()
         # Strict hostname literal matching (no www. stripping)
-        
+
         if not thost:
             return None, "redirect target has no hostname"
 
@@ -909,21 +1044,14 @@ class EndpointAnalyzer:
             if thost != ohost:
                 return None, "redirect target is on a different host"
 
-            if scheme != oscheme:
-                if not (
-                    oscheme == "http"
-                    and scheme == "https"
-                    and oport == 80
-                    and tport == 443
-                ):
-                    return None, "redirect target changes scheme"
+            # Allow HTTP -> HTTPS upgrades, including non-standard ports
+            # such as http://host:8080 -> https://host:8443.
+            upgrade = oscheme == "http" and scheme == "https"
 
-            if tport != oport and not (
-                oscheme == "http"
-                and scheme == "https"
-                and oport == 80
-                and tport == 443
-            ):
+            if scheme != oscheme and not upgrade:
+                return None, "redirect target changes scheme"
+
+            if tport != oport and not upgrade:
                 return None, "redirect target changes port"
 
         return urlunsplit(
@@ -947,10 +1075,14 @@ class EndpointAnalyzer:
     ) -> dict[str, Any]:
         """
         Read at most max_response_size RAW bytes.
+
         The raw-byte limit is enforced before UTF-8 decoding. A separate
         decoded-text limit prevents pathological expansion from consuming
         excessive memory while still allowing normal JSON responses up to
         the configured raw response limit to be analyzed.
+
+        Uses an incremental UTF-8 decoder so multi-byte characters split
+        across chunk boundaries are not corrupted.
         """
         raw_size = 0
         truncated = False
@@ -958,6 +1090,7 @@ class EndpointAnalyzer:
         chunks: list[str] = []
         collected_chars = 0
         deadline = time.monotonic() + self.timeout
+        decoder = codecs.getincrementaldecoder("utf-8-sig")("replace")
 
         try:
             for raw in response.iter_content(
@@ -984,17 +1117,15 @@ class EndpointAnalyzer:
 
                 # Keep enough decoded text for structure inference.
                 if collected_chars < BODY_READ_LIMIT:
-                    piece = raw.decode(
-                        "utf-8-sig",
-                        errors="replace",
-                    )
+                    piece = decoder.decode(raw)
                     remaining_chars = (
                         BODY_READ_LIMIT - collected_chars
                     )
                     if len(piece) > remaining_chars:
                         piece = piece[:remaining_chars]
-                    chunks.append(piece)
-                    collected_chars += len(piece)
+                    if piece:
+                        chunks.append(piece)
+                        collected_chars += len(piece)
 
                 if truncated:
                     break
@@ -1008,6 +1139,20 @@ class EndpointAnalyzer:
                 f"{type(exc).__name__}: "
                 f"{self._short(str(exc))}"
             )
+        finally:
+            try:
+                if collected_chars < BODY_READ_LIMIT:
+                    final_piece = decoder.decode(b"", final=True)
+                    remaining_chars = (
+                        BODY_READ_LIMIT - collected_chars
+                    )
+                    if len(final_piece) > remaining_chars:
+                        final_piece = final_piece[:remaining_chars]
+                    if final_piece:
+                        chunks.append(final_piece)
+                        collected_chars += len(final_piece)
+            except Exception:
+                pass
 
         if truncated:
             result["warnings"].append(
@@ -1075,6 +1220,31 @@ class EndpointAnalyzer:
         )
         result["headers"] = self._extract_headers(headers)
 
+        # Normalize OPTIONS probe output, if one was performed.
+        options = net.get("options")
+        if options is not None:
+            opt_headers = self._extract_headers(
+                options.get("headers", {})
+            )
+            opt_elapsed = options.get("elapsed_s")
+            result["options_probe"] = {
+                "status": options.get("status"),
+                "headers": opt_headers,
+                "error": options.get("error"),
+                "response_time_ms": (
+                    round(opt_elapsed * 1000, 1)
+                    if opt_elapsed is not None
+                    else None
+                ),
+            }
+            if options.get("error"):
+                result["warnings"].append(
+                    "OPTIONS probe failed: "
+                    f"{options['error'].get('type', 'unknown')}"
+                )
+        else:
+            result["options_probe"] = None
+
         # Only add path parameters from URLs that were actually requested.
         result["parameters"].extend(
             self._path_parameters(final_url)
@@ -1109,12 +1279,16 @@ class EndpointAnalyzer:
             "truncated": net["truncated"],
             "deadline": net.get("deadline", False),
             "followed_same_host": len(chain) > 1,
+            "options": result.get("options_probe"),
         }
 
         result["api_behavior"] = (
             self._classify_api_behavior(ctx)
         )
         result["access"] = self._classify_access(ctx)
+        result["security_posture"] = (
+            self._classify_security_posture(ctx)
+        )
 
         if net.get("blocked"):
             result["error"] = {
@@ -1155,6 +1329,12 @@ class EndpointAnalyzer:
             "www-authenticate",
             "location",
             "access-control-allow-origin",
+            "access-control-allow-methods",
+            "access-control-allow-credentials",
+            "strict-transport-security",
+            "x-content-type-options",
+            "x-frame-options",
+            "content-security-policy",
         )
         out: dict[str, str | None] = {}
 
@@ -1273,6 +1453,27 @@ class EndpointAnalyzer:
         except Exception:
             return False, None
 
+    @staticmethod
+    def _is_graphql_payload(parsed: Any) -> bool:
+        """Heuristic detection of GraphQL-shaped JSON payloads."""
+        if not isinstance(parsed, dict):
+            return False
+
+        if "__schema" in parsed:
+            return True
+
+        if "data" in parsed and "errors" in parsed:
+            return True
+
+        errors = parsed.get("errors")
+        if isinstance(errors, list) and errors:
+            return any(
+                isinstance(item, dict) and "message" in item
+                for item in errors[:5]
+            )
+
+        return False
+
     def _detect_structure(
         self,
         body: str,
@@ -1280,7 +1481,7 @@ class EndpointAnalyzer:
         net: dict[str, Any],
         result: dict[str, Any],
     ) -> dict[str, Any] | None:
-        """FIRST MATCH WINS response-structure detection."""
+        """Weighted-friendly response-structure detection."""
         if body is None:
             return None
 
@@ -1315,10 +1516,18 @@ class EndpointAnalyzer:
                         "JSON despite content type "
                         f"{content_type or 'unknown'}"
                     )
-                return self._infer_structure(
+
+                struct = self._infer_structure(
                     parsed,
                     1,
                 )
+
+                if self._is_graphql_payload(parsed):
+                    if isinstance(struct, dict):
+                        struct["api_hint"] = "graphql"
+
+                return struct
+
             if json_ct:
                 if (
                     net["truncated"]
@@ -1464,12 +1673,18 @@ class EndpointAnalyzer:
         self,
         ctx: dict[str, Any],
     ) -> dict[str, Any]:
-        """FIRST MATCH WINS API-behavior classification."""
+        """
+        Weighted API-behavior classification.
+
+        Evidence is collected first, then the classification with the
+        highest accumulated weight wins.
+        """
         struct = ctx["struct"]
         ct = ctx["content_type"]
         status = ctx["status"]
         body = ctx["body"]
         headers = ctx["headers"]
+        options = ctx.get("options") or {}
 
         json_ct = _is_json_content(ct)
         container = self._parsed_container(struct)
@@ -1488,14 +1703,35 @@ class EndpointAnalyzer:
             if isinstance(struct, dict)
             else None
         )
+        api_hint = (
+            struct.get("api_hint")
+            if isinstance(struct, dict)
+            else None
+        )
+
+        scores = {
+            "confirmed": 0,
+            "likely": 0,
+            "uncertain": 0,
+            "unlikely": 0,
+        }
+        evidence: list[str] = []
+
+        def add(
+            classification: str,
+            weight: int,
+            message: str,
+        ) -> None:
+            scores[classification] += weight
+            evidence.append(
+                f"{classification} +{weight}: {message}"
+            )
 
         if stype is None:
-            return self._behavior(
+            add(
                 "uncertain",
-                [
-                    "1: request failed or response body "
-                    "unavailable"
-                ],
+                100,
+                "request failed or response body unavailable",
             )
 
         if (
@@ -1503,92 +1739,126 @@ class EndpointAnalyzer:
             and json_ct
             and status not in (404, 410)
         ):
-            return self._behavior(
+            add(
                 "confirmed",
-                [
-                    f"2: JSON {stype} returned with JSON "
-                    f"content type (status {status})"
-                ],
+                100,
+                f"JSON {stype} returned with JSON content type "
+                f"(status {status})",
             )
 
+        if api_hint == "graphql":
+            if json_ct:
+                add(
+                    "confirmed",
+                    45,
+                    "GraphQL-style JSON payload detected",
+                )
+            else:
+                add(
+                    "likely",
+                    35,
+                    "GraphQL-style payload without JSON content type",
+                )
+
         if container and status in (404, 410):
-            return self._behavior(
+            add(
                 "likely",
-                [
-                    f"3: JSON {stype} returned with "
-                    f"error status {status}"
-                ],
+                75,
+                f"JSON {stype} returned with error status {status}",
             )
 
         if primitive_json:
-            return self._behavior(
+            add(
                 "likely",
-                [
-                    "4: JSON primitive with JSON "
-                    "content type"
-                ],
+                60,
+                "JSON primitive with JSON content type",
             )
 
+        looks_json = (
+            isinstance(body, str)
+            and body.lstrip()[:1] in "{["
+        )
         if (
             (ctx["truncated"] or ctx.get("deadline"))
-            and (
-                json_ct
-                or (
-                    isinstance(body, str)
-                    and body.lstrip()[:1] in "{["
-                )
-            )
+            and (json_ct or looks_json)
         ):
-            return self._behavior(
+            add(
                 "likely",
-                [
-                    "5: body truncated while looking "
-                    "like JSON"
-                ],
+                55,
+                "body truncated while looking like JSON",
             )
 
         if json_ct and stype == "unknown":
-            return self._behavior(
+            add(
                 "likely",
-                [
-                    "6: JSON content type but body "
-                    "could not be parsed"
-                ],
+                50,
+                "JSON content type but body could not be parsed",
             )
 
         if json_ct and stype == "empty":
-            return self._behavior(
+            add(
                 "uncertain",
-                [
-                    "7: JSON content type with empty body"
-                ],
+                35,
+                "JSON content type with empty body",
             )
 
         if container and not json_ct:
-            return self._behavior(
+            add(
                 "likely",
-                [
-                    f"8: JSON {stype} served with "
-                    "non-JSON content type"
-                ],
+                55,
+                f"JSON {stype} served with non-JSON content type",
             )
+
+        # OPTIONS fallback evidence.
+        opt_status = options.get("status")
+        opt_headers = options.get("headers") or {}
+        opt_allow = opt_headers.get("allow") or ""
+        opt_acam = opt_headers.get(
+            "access-control-allow-methods"
+        ) or ""
+
+        if opt_status in (200, 204) and (opt_allow or opt_acam):
+            add(
+                "likely",
+                85,
+                f"OPTIONS probe returned {opt_status} with allowed methods",
+            )
+
+            methods: set[str] = set()
+            for value in (
+                opt_allow,
+                opt_acam,
+                headers.get("allow"),
+            ):
+                if not value:
+                    continue
+                for item in str(value).split(","):
+                    item = item.strip().upper()
+                    if item:
+                        methods.add(item)
+
+            if methods - {"GET", "HEAD", "OPTIONS"}:
+                add(
+                    "confirmed",
+                    20,
+                    "OPTIONS probe advertises non-GET methods",
+                )
 
         if (
             stype == "binary"
             or ct in _JS_CSS_TYPES
         ):
-            return self._behavior(
+            add(
                 "unlikely",
-                [
-                    "9: static/binary or "
-                    "JavaScript/CSS response"
-                ],
+                100,
+                "static/binary or JavaScript/CSS response",
             )
 
         if stype == "xml":
-            return self._behavior(
+            add(
                 "likely",
-                ["10: XML response"],
+                65,
+                "XML response",
             )
 
         if (
@@ -1599,22 +1869,23 @@ class EndpointAnalyzer:
                 or headers.get("allow")
             )
         ):
-            evidence = [
-                f"11: status {status} with "
-                "machine-readable error response"
-            ]
+            add(
+                "likely",
+                80,
+                f"status {status} with machine-readable API signal",
+            )
             if headers.get("www-authenticate"):
-                evidence.append(
-                    "11: WWW-Authenticate header present"
+                add(
+                    "likely",
+                    10,
+                    "WWW-Authenticate header present",
                 )
             if headers.get("allow"):
-                evidence.append(
-                    "11: Allow header present"
+                add(
+                    "likely",
+                    10,
+                    "Allow header present",
                 )
-            return self._behavior(
-                "likely",
-                evidence,
-            )
 
         if (
             ctx["followed_same_host"]
@@ -1622,33 +1893,53 @@ class EndpointAnalyzer:
                 self._path_of(ctx["final_url"])
             )
         ):
-            return self._behavior(
+            add(
                 "uncertain",
-                [
-                    "12: redirected to a login/"
-                    "authentication path"
-                ],
+                65,
+                "redirected to a login/authentication path",
             )
 
         if status in (401, 403, 405):
-            return self._behavior(
+            add(
                 "uncertain",
-                [
-                    f"13: status {status} indicates "
-                    "restricted access"
-                ],
+                45,
+                f"status {status} indicates restricted access",
             )
 
         if stype == "html":
-            return self._behavior(
-                "unlikely",
-                ["14: HTML page response"],
+            if status in (401, 403, 405):
+                add(
+                    "uncertain",
+                    70,
+                    "HTML response with restricted status",
+                )
+            else:
+                add(
+                    "unlikely",
+                    95,
+                    "HTML page response",
+                )
+
+        if stype == "text":
+            add(
+                "uncertain",
+                25,
+                "plain text or static text-like response",
             )
 
-        return self._behavior(
-            "uncertain",
-            ["15: insufficient evidence to classify"],
+        if not evidence:
+            add(
+                "uncertain",
+                1,
+                "insufficient evidence to classify",
+            )
+
+        order = ("confirmed", "likely", "uncertain", "unlikely")
+        best = max(
+            order,
+            key=lambda name: (scores[name], -order.index(name)),
         )
+        return self._behavior(best, evidence)
 
     @staticmethod
     def _behavior(
@@ -1666,39 +1957,61 @@ class EndpointAnalyzer:
         except (ValueError, UnicodeError):
             return ""
 
+    def _scheme_of(self, url: str) -> str:
+        try:
+            return urlsplit(url).scheme.lower()
+        except (ValueError, UnicodeError):
+            return ""
+
     def _classify_access(
         self,
         ctx: dict[str, Any],
     ) -> dict[str, Any]:
-        """FIRST MATCH WINS access classification."""
+        """Weighted access classification."""
         status = ctx["status"]
         headers = ctx["headers"]
+
+        scores = {
+            "authentication_required": 0,
+            "forbidden": 0,
+            "public": 0,
+            "unknown": 0,
+        }
+        evidence: list[str] = []
+
+        def add(
+            classification: str,
+            weight: int,
+            message: str,
+        ) -> None:
+            scores[classification] += weight
+            evidence.append(
+                f"{classification} +{weight}: {message}"
+            )
 
         if (
             status == 401
             or headers.get("www-authenticate")
         ):
-            ev = []
             if status == 401:
-                ev.append(
-                    "1: status 401 Unauthorized"
+                add(
+                    "authentication_required",
+                    100,
+                    "status 401 Unauthorized",
                 )
             if headers.get("www-authenticate"):
-                ev.append(
-                    "1: WWW-Authenticate header present"
+                add(
+                    "authentication_required",
+                    20,
+                    "WWW-Authenticate header present",
                 )
-            return {
-                "classification": "authentication_required",
-                "evidence": ev,
-            }
 
         if status == 403:
-            return {
-                "classification": "forbidden",
-                "evidence": [
-                    "2: status 403 Forbidden"
-                ],
-            }
+            add(
+                "forbidden",
+                95,
+                "status 403 Forbidden",
+            )
 
         if (
             ctx["followed_same_host"]
@@ -1706,28 +2019,122 @@ class EndpointAnalyzer:
                 self._path_of(ctx["final_url"])
             )
         ):
-            return {
-                "classification": "authentication_required",
-                "evidence": [
-                    "3: redirected to a login/"
-                    "authentication path"
-                ],
-            }
+            add(
+                "authentication_required",
+                85,
+                "redirected to a login/authentication path",
+            )
 
         if 200 <= status < 300:
-            return {
-                "classification": "public",
-                "evidence": [
-                    "4: 2xx response without "
-                    "supplied credentials"
-                ],
-            }
+            add(
+                "public",
+                80,
+                "2xx response without supplied credentials",
+            )
+
+        if not evidence:
+            add(
+                "unknown",
+                1,
+                "no access signal matched",
+            )
+
+        order = (
+            "authentication_required",
+            "forbidden",
+            "public",
+            "unknown",
+        )
+        best = max(
+            order,
+            key=lambda name: (scores[name], -order.index(name)),
+        )
 
         return {
-            "classification": "unknown",
-            "evidence": [
-                "5: no access signal matched"
-            ],
+            "classification": best,
+            "evidence": evidence,
+        }
+
+    def _classify_security_posture(
+        self,
+        ctx: dict[str, Any],
+    ) -> dict[str, Any]:
+        """
+        Basic security-header and CORS posture classification.
+
+        This is intentionally conservative and additive. It does not change
+        existing access/api_behavior classifications.
+        """
+        headers = ctx["headers"]
+        final_url = ctx["final_url"]
+        scheme = self._scheme_of(final_url)
+
+        issues: list[str] = []
+        evidence: list[str] = []
+
+        acao = (headers.get("access-control-allow-origin") or "").strip()
+        acac_raw = (
+            headers.get("access-control-allow-credentials") or ""
+        ).strip().lower()
+        acac = acac_raw == "true"
+
+        if acao == "*" and acac:
+            issues.append(
+                "dangerous_cors_wildcard_with_credentials"
+            )
+            evidence.append(
+                "CORS: Access-Control-Allow-Origin is '*' while "
+                "Access-Control-Allow-Credentials is true"
+            )
+
+        hsts = headers.get("strict-transport-security")
+        if scheme == "https" and not hsts:
+            issues.append("missing_hsts")
+            evidence.append(
+                "HTTPS response missing Strict-Transport-Security header"
+            )
+
+        xcto = (headers.get("x-content-type-options") or "").strip().lower()
+        if xcto != "nosniff":
+            issues.append("missing_or_invalid_x_content_type_options")
+            evidence.append(
+                "X-Content-Type-Options is missing or not 'nosniff'"
+            )
+
+        xfo = headers.get("x-frame-options")
+        if not xfo:
+            issues.append("missing_x_frame_options")
+            evidence.append(
+                "X-Frame-Options header missing"
+            )
+
+        csp = headers.get("content-security-policy")
+        if not csp:
+            issues.append("missing_csp")
+            evidence.append(
+                "Content-Security-Policy header missing"
+            )
+
+        if issues:
+            classification = (
+                "risky"
+                if "dangerous_cors_wildcard_with_credentials" in issues
+                else "needs_review"
+            )
+        else:
+            classification = (
+                "hardened"
+                if scheme == "https"
+                else "unknown"
+            )
+            evidence.append(
+                "No basic security-header issues detected"
+            )
+
+        return {
+            "classification": classification,
+            "issues": issues,
+            "evidence": evidence,
         }
 
     # -- result scaffolding -------------------------------------------------
@@ -1758,13 +2165,25 @@ class EndpointAnalyzer:
                 "www-authenticate": None,
                 "location": None,
                 "access-control-allow-origin": None,
+                "access-control-allow-methods": None,
+                "access-control-allow-credentials": None,
+                "strict-transport-security": None,
+                "x-content-type-options": None,
+                "x-frame-options": None,
+                "content-security-policy": None,
             },
+            "options_probe": None,
             "api_behavior": {
                 "classification": "uncertain",
                 "evidence": [],
             },
             "access": {
                 "classification": "unknown",
+                "evidence": [],
+            },
+            "security_posture": {
+                "classification": "unknown",
+                "issues": [],
                 "evidence": [],
             },
             "warnings": [],
